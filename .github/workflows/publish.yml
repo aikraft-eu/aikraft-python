@@ -1,0 +1,42 @@
+name: publish
+on:
+  release:
+    types: [published]   # GitHub release -> PyPI (after approval on the "pypi" environment)
+  workflow_dispatch:     # manual run -> TestPyPI
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Release tag must match the package version
+        if: github.event_name == 'release'
+        run: |
+          expected="v$(uv version --short)"
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $expected" >&2
+            exit 1
+          fi
+      - run: uv build
+      - name: Smoke-test the built wheel
+        run: uv run --isolated --no-project --with dist/*.whl python -c "import aikraft; print(aikraft.__version__)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'release' && 'pypi' || 'testpypi' }}
+    permissions:
+      id-token: write    # trusted publishing; no API token stored anywhere
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: ${{ github.event_name == 'release' && 'https://upload.pypi.org/legacy/' || 'https://test.pypi.org/legacy/' }}

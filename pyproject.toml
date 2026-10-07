@@ -1,14 +1,66 @@
 [project]
-name = "aikraft-python"
-version = "0.1.0"
-description = "Add your description here"
+name = "aikraft"
+version = "0.0.1"
+description = "Privacy-first monitoring for LLM apps: sends aggregate metrics to Aikraft, never prompts or responses."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [
     { name = "aikraft", email = "support@aikraft.eu" }
 ]
-requires-python = ">=3.9"
-dependencies = []
+requires-python = ">=3.10"
+keywords = ["llm", "monitoring", "observability", "eu-ai-act", "compliance", "anthropic", "openai"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Monitoring",
+    "Typing :: Typed",
+]
+dependencies = [
+    "httpx>=0.28.1",
+]
+
+[project.urls]
+Homepage = "https://aikraft.eu"
+Source = "https://github.com/aikraft-eu/aikraft-python"
+Issues = "https://github.com/aikraft-eu/aikraft-python/issues"
 
 [build-system]
 requires = ["uv_build>=0.11.33,<0.12.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "aikraft"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+    "pytest>=8.4.2",
+    "ruff>=0.16.10",
+    # Test-only: wrappers must work with whatever client version the customer has installed,
+    # so these are never runtime dependencies or pinned extras.
+    "anthropic",
+    "openai",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+strict = true
+python_version = "3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
