@@ -1,8 +1,18 @@
 name: publish
 on:
   release:
-    types: [published]   # GitHub release -> PyPI (after approval on the "pypi" environment)
-  workflow_dispatch:     # manual run -> TestPyPI
+    types: [published]   # GitHub release -> PyPI
+  workflow_dispatch:     # manual run -> PyPI by default, TestPyPI optional
+    inputs:
+      target:
+        description: Package index to publish to
+        type: choice
+        options: [pypi, testpypi]
+        default: pypi
+
+env:
+  # Releases always go to PyPI; manual runs use the chosen target.
+  TARGET: ${{ github.event_name == 'release' && 'pypi' || inputs.target }}
 
 jobs:
   build:
@@ -18,6 +28,11 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match package version $expected" >&2
             exit 1
           fi
+      - name: Manual PyPI publishes only from main
+        if: github.event_name == 'workflow_dispatch' && inputs.target == 'pypi' && github.ref != 'refs/heads/main'
+        run: |
+          echo "Publish to PyPI from main (got $GITHUB_REF)" >&2
+          exit 1
       - run: uv build
       - name: Smoke-test the built wheel
         run: uv run --isolated --no-project --with dist/*.whl python -c "import aikraft; print(aikraft.__version__)"
@@ -29,7 +44,9 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
-    environment: ${{ github.event_name == 'release' && 'pypi' || 'testpypi' }}
+    # Must match the "Environment name" of the trusted publisher on that index:
+    # "pypi" on pypi.org, "testpypi" on test.pypi.org.
+    environment: ${{ github.event_name == 'release' && 'pypi' || inputs.target }}
     permissions:
       id-token: write    # trusted publishing; no API token stored anywhere
     steps:
@@ -39,4 +56,4 @@ jobs:
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          repository-url: ${{ github.event_name == 'release' && 'https://upload.pypi.org/legacy/' || 'https://test.pypi.org/legacy/' }}
+          repository-url: ${{ env.TARGET == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}
