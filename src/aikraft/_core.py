@@ -26,6 +26,24 @@ logger.addHandler(logging.NullHandler())
 DEFAULT_ENDPOINT = "https://api.aikraft.eu"
 DEFAULT_FLUSH_INTERVAL = 60.0
 
+_debug_handler: logging.Handler | None = None
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").lower() in ("1", "true", "yes")
+
+
+def _enable_debug_logging() -> None:
+    """Show the ``aikraft`` logger on stderr unless the app already routes it somewhere."""
+    global _debug_handler
+    if _debug_handler is None and not any(not isinstance(h, logging.NullHandler) for h in logger.handlers):
+        _debug_handler = logging.StreamHandler()
+        _debug_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+        logger.addHandler(_debug_handler)
+    if logger.level == logging.NOTSET or logger.level > logging.INFO:
+        logger.setLevel(logging.INFO)
+
+
 _current_tag: contextvars.ContextVar[str | None] = contextvars.ContextVar("aikraft_tag", default=None)
 
 
@@ -49,17 +67,28 @@ def init(
     flush_interval: float = DEFAULT_FLUSH_INTERVAL,
     enabled: bool | None = None,
     http_client: httpx.Client | None = None,
+    debug: bool | None = None,
+    dry_run: bool | None = None,
 ) -> bool:
     """Configure the SDK. Returns True if monitoring is active.
 
     ``api_key`` defaults to ``$AIKRAFT_API_KEY`` and ``endpoint`` to ``$AIKRAFT_ENDPOINT`` (or the Aikraft
     API). Set ``enabled=False`` or ``AIKRAFT_DISABLED=1`` to turn everything into a no-op, e.g. in tests.
     Calling ``init`` again replaces the previous configuration (flushing what it had buffered).
+
+    ``debug=True`` (or ``AIKRAFT_DEBUG=1``) prints every payload and the server's reply to stderr.
+    ``dry_run=True`` (or ``AIKRAFT_DRY_RUN=1``) prints payloads without sending them; no API key needed.
     """
     global _state, _atexit_registered
     if enabled is None:
-        enabled = os.environ.get("AIKRAFT_DISABLED", "").lower() not in ("1", "true", "yes")
-    key = api_key or os.environ.get("AIKRAFT_API_KEY")
+        enabled = not _env_flag("AIKRAFT_DISABLED")
+    if debug is None:
+        debug = _env_flag("AIKRAFT_DEBUG")
+    if dry_run is None:
+        dry_run = _env_flag("AIKRAFT_DRY_RUN")
+    if debug or dry_run:
+        _enable_debug_logging()
+    key = api_key or os.environ.get("AIKRAFT_API_KEY") or ("dry-run" if dry_run else None)
     with _state_lock:
         previous, _state = _state, None
     if previous is not None:
@@ -80,6 +109,8 @@ def init(
         api_key=key,
         user_agent=f"aikraft-python/{VERSION}",
         http_client=http_client,
+        debug=debug,
+        dry_run=dry_run,
     )
     worker = Worker(aggregator, transport, interval=flush_interval, sdk_version=VERSION)
     with _state_lock:

@@ -25,7 +25,9 @@ EDGES: dict[str, tuple[float, ...]] = {
 }
 
 STOP_REASONS = frozenset({"end_turn", "max_tokens", "stop_sequence", "tool_use", "refusal", "content_filter", "other"})
-STATUSES = frozenset({"ok", "rate_limited", "timeout", "auth_error", "bad_request", "server_error", "error"})
+STATUSES = frozenset(
+    {"ok", "rate_limited", "timeout", "connection_error", "auth_error", "bad_request", "server_error", "error"}
+)
 
 MAX_WINDOWS_PER_REQUEST = 50
 MODEL_MAX_LEN = 128
@@ -70,6 +72,12 @@ def normalize_stop_reason(raw: object) -> str:
 _STATUS_BY_EXCEPTION = {
     "RateLimitError": "rate_limited",
     "APITimeoutError": "timeout",
+    # Server unreachable: refused, DNS, TLS, dropped connection. Checked after the class itself, so the
+    # SDKs' APITimeoutError (a subclass of APIConnectionError) stays "timeout".
+    "APIConnectionError": "connection_error",
+    "ConnectError": "connection_error",  # httpx
+    "RemoteProtocolError": "connection_error",  # httpx
+    "ConnectionError": "connection_error",  # builtin (refused, reset, aborted) and requests
     "DeadlineExceededError": "timeout",
     "AuthenticationError": "auth_error",
     "PermissionDeniedError": "auth_error",

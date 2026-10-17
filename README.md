@@ -32,7 +32,7 @@ For each minute, per model and optional tag, the SDK sends **counts only**:
 | Number of calls | `128` |
 | Latency, input tokens, output tokens, output length: counts per fixed bucket, plus a sum | `"latency_ms": {"counts": [0, …, 120, 8, 0], "sum": 91234.5}` |
 | Stop reasons (fixed vocabulary) | `{"end_turn": 120, "max_tokens": 5, "refusal": 3}` |
-| Call status (fixed vocabulary) | `{"ok": 126, "rate_limited": 1, "server_error": 1}` |
+| Call status (fixed vocabulary: `ok`, `rate_limited`, `timeout`, `connection_error`, `auth_error`, `bad_request`, `server_error`, `error`) | `{"ok": 126, "rate_limited": 1, "connection_error": 1}` |
 | Optional feedback scores: count and sum | `{"count": 4, "sum": 3.0}` |
 
 **Never sent:** prompts, system prompts, responses, tool inputs or outputs, user or request IDs, or
@@ -45,7 +45,7 @@ A full payload looks like this:
 {
   "schema": "aikraft.llm.v1",
   "batch_id": "3f0c…",
-  "sdk": {"name": "aikraft-python", "version": "0.1.0"},
+  "sdk": {"name": "aikraft-python", "version": "0.2.0"},
   "windows": [{
     "start": "2026-10-08T14:00:00+00:00", "end": "2026-10-08T14:01:00+00:00",
     "model": "claude-sonnet-5-5", "tag": "support-bot", "calls": 128,
@@ -98,9 +98,29 @@ Only the count and sum per minute are sent, never which response they belong to.
 | `endpoint=` | `AIKRAFT_ENDPOINT` | `https://api.aikraft.eu` |
 | `enabled=False` | `AIKRAFT_DISABLED=1` | enabled |
 | `flush_interval=` | | `60` seconds |
+| `debug=True` | `AIKRAFT_DEBUG=1` | off |
+| `dry_run=True` | `AIKRAFT_DRY_RUN=1` | off |
 
 Without an API key, or when disabled, `init()` logs a warning and everything becomes a no-op. Your app
 keeps working. Logs go to the `aikraft` logger.
+
+### Seeing exactly what is sent
+
+`debug` prints every payload before it is sent, and the server's reply, to stderr (or to wherever your
+app already routes the `aikraft` logger). `dry_run` does the same without sending anything and without
+needing an API key, which is handy to check the data locally before connecting:
+
+```console
+$ AIKRAFT_DRY_RUN=1 python app.py
+2026-10-17 22:09:24 aikraft: dry run, not sending batch b03e… (1 windows) to https://api.aikraft.eu/…
+{
+  "schema": "aikraft.llm.v1",
+  …
+      "categories": {"status": {"connection_error": 1}}
+}
+```
+
+The API key is never logged. In the Aikraft app, the Telemetry tab also lists what was received.
 
 ## Behaviour you can rely on
 

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import enum
+import json
 import logging
+import re
 import time
 from collections.abc import Callable
 from typing import Any
@@ -37,6 +39,8 @@ class Transport:
         backoff_base: float = 0.5,
         http_client: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        debug: bool = False,
+        dry_run: bool = False,
     ) -> None:
         self.url = f"{endpoint.rstrip('/')}/v1/workspaces/{workspace}/systems/{system}/monitoring/aggregates:ingest"
         self._headers = {"Authorization": f"Bearer {api_key}", "User-Agent": user_agent}
@@ -47,6 +51,8 @@ class Transport:
         self._owns_client = http_client is None
         self._sleep = sleep
         self._logged_drop = False
+        self._debug = debug or dry_run
+        self._dry_run = dry_run
 
     def _http(self) -> httpx.Client:
         if self._client is None:
@@ -65,6 +71,18 @@ class Transport:
 
     def send(self, payload: dict[str, Any], *, max_attempts: int | None = None) -> SendResult:
         """POST one payload, retrying transient failures with the *same* payload (and so the same batch_id)."""
+        if self._debug:
+            # The payload holds only counts; the API key is in a header and never logged.
+            logger.info(
+                "aikraft: %s batch %s (%d windows) to %s\n%s",
+                "dry run, not sending" if self._dry_run else "sending",
+                payload.get("batch_id"),
+                len(payload.get("windows", [])),
+                self.url,
+                _pretty(payload),
+            )
+        if self._dry_run:
+            return SendResult.OK
         attempts = max_attempts or self._max_attempts
         for attempt in range(attempts):
             delay = self._backoff_base * (2**attempt)
@@ -74,6 +92,8 @@ class Transport:
                 logger.debug("aikraft: send failed (%s), attempt %d/%d", exc, attempt + 1, attempts)
             else:
                 code = response.status_code
+                if self._debug:
+                    logger.info("aikraft: HTTP %d %s", code, response.text[:500])
                 if 200 <= code < 300:
                     return SendResult.OK
                 if code in (401, 403):
@@ -92,6 +112,14 @@ class Transport:
             if attempt + 1 < attempts:
                 self._sleep(delay)
         return SendResult.RETRY
+
+
+_NUMBER_LIST = re.compile(r"\[\s+([-\d.,\s]+?)\s+\]")
+
+
+def _pretty(payload: dict[str, Any]) -> str:
+    """Indented JSON with number lists (histogram counts) kept on one line."""
+    return _NUMBER_LIST.sub(lambda m: "[" + " ".join(m.group(1).split()) + "]", json.dumps(payload, indent=2))
 
 
 def _retry_after(response: httpx.Response) -> float | None:
