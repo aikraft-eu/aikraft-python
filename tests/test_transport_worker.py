@@ -157,3 +157,68 @@ def test_feedback_is_sent(sink: object) -> None:
     aikraft.feedback(0.0, model="m", tag="bot")
     [w] = sink.windows()  # type: ignore[attr-defined]
     assert w["feedback"] == {"count": 2, "sum": 1.0} and w["tag"] == "bot"
+
+
+def test_debug_logs_payload_and_reply_but_not_the_key(caplog: pytest.LogCaptureFixture) -> None:
+    t = Transport(
+        endpoint="https://api.example/",
+        workspace="ws",
+        system="sys",
+        api_key="ak_test_secret",
+        user_agent="aikraft-python/test",
+        http_client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"accepted": 0}))),
+        debug=True,
+    )
+    with caplog.at_level("INFO", logger="aikraft"):
+        assert t.send(PAYLOAD) is SendResult.OK
+    text = caplog.text
+    assert "sending batch b-1 (0 windows)" in text and '"schema": "aikraft.llm.v1"' in text
+    assert 'HTTP 200 {"accepted":0}' in text
+    assert "ak_test_secret" not in text
+
+
+def test_dry_run_logs_without_sending(caplog: pytest.LogCaptureFixture) -> None:
+    sent: list[httpx.Request] = []
+    t = Transport(
+        endpoint="https://api.example/",
+        workspace="ws",
+        system="sys",
+        api_key="dry-run",
+        user_agent="aikraft-python/test",
+        http_client=httpx.Client(transport=httpx.MockTransport(lambda r: sent.append(r) or httpx.Response(200))),
+        dry_run=True,
+    )
+    with caplog.at_level("INFO", logger="aikraft"):
+        assert t.send(PAYLOAD) is SendResult.OK
+    assert sent == [] and "dry run, not sending batch b-1" in caplog.text
+
+
+def test_init_dry_run_needs_no_key_and_sends_nothing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.delenv("AIKRAFT_API_KEY", raising=False)
+    monkeypatch.setenv("AIKRAFT_DRY_RUN", "1")
+    sent: list[httpx.Request] = []
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: sent.append(r) or httpx.Response(200)))
+    try:
+        assert aikraft.init("ws", "sys", http_client=client) is True
+        aikraft.feedback(1.0, model="m")
+        with caplog.at_level("INFO", logger="aikraft"):
+            aikraft.flush()
+    finally:
+        aikraft.shutdown()
+    assert sent == []
+    assert '"feedback": {' in caplog.text and '"count": 1' in caplog.text
+
+
+def test_debug_env_turns_on_logging(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    monkeypatch.setenv("AIKRAFT_DEBUG", "true")
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"accepted": 1})))
+    try:
+        assert aikraft.init("ws", "sys", api_key="ak_test_x", http_client=client) is True
+        aikraft.feedback(0.0, model="m")
+        with caplog.at_level("INFO", logger="aikraft"):
+            aikraft.flush()
+    finally:
+        aikraft.shutdown()
+    assert "sending batch" in caplog.text and "HTTP 200" in caplog.text

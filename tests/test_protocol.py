@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from aikraft._protocol import (
@@ -67,6 +68,9 @@ def _exc(name: str, base: type[Exception] = Exception, **attrs: object) -> Excep
     [
         (_exc("RateLimitError"), "rate_limited"),
         (_exc("APITimeoutError"), "timeout"),
+        (_exc("APIConnectionError"), "connection_error"),
+        (ConnectionRefusedError("refused"), "connection_error"),
+        (_exc("ConnectError"), "connection_error"),
         (_exc("AuthenticationError"), "auth_error"),
         (_exc("OverloadedError"), "server_error"),
         (_exc("BadRequestError"), "bad_request"),
@@ -83,6 +87,18 @@ def test_status_follows_subclasses() -> None:
     base = type("RateLimitError", (Exception,), {})
     sub = type("MyRateLimit", (base,), {})
     assert status_from_exception(sub()) == "rate_limited"
+
+
+def test_sdk_timeouts_stay_timeouts() -> None:
+    # openai/anthropic: APITimeoutError subclasses APIConnectionError; the more specific class wins.
+    conn = type("APIConnectionError", (Exception,), {})
+    timeout = type("APITimeoutError", (conn,), {})
+    assert status_from_exception(timeout()) == "timeout"
+
+
+def test_httpx_connect_error_is_connection_error() -> None:
+    assert status_from_exception(httpx.ConnectError("refused")) == "connection_error"
+    assert status_from_exception(httpx.ConnectTimeout("slow")) == "error"  # not a connection failure we can name
 
 
 def test_clean_model_and_tags() -> None:
